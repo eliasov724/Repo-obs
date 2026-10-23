@@ -1,0 +1,139 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-onix
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: pacientes_db
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - onix-network
+
+  # Eureka Server
+  eureka-server:
+    image: openjdk:17-jdk-slim
+    container_name: eureka-server
+    working_dir: /app
+    volumes:
+      - ./eureka-server/target/eureka-server-0.0.1-SNAPSHOT.jar:/app/app.jar
+    command: java -jar app.jar
+    ports:
+      - "8761:8761"
+    environment:
+      SPRING_APPLICATION_NAME: eureka-server
+    networks:
+      - onix-network
+    depends_on:
+      - mysql
+
+  # Pacientes Microservice
+  pacientes:
+    image: openjdk:17-jdk-slim
+    container_name: pacientes-service
+    working_dir: /app
+    volumes:
+      - ./pacientes/target/pacientes-0.0.1-SNAPSHOT.jar:/app/app.jar
+    command: java -jar app.jar
+    ports:
+      - "9001:9001"
+    environment:
+      SPRING_APPLICATION_NAME: pacientes
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/pacientes_db
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root123
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    networks:
+      - onix-network
+    depends_on:
+      - mysql
+      - eureka-server
+
+  # Turnos Microservice
+  turnos:
+    image: openjdk:17-jdk-slim
+    container_name: turnos-service
+    working_dir: /app
+    volumes:
+      - ./turnos/target/turnos-0.0.1-SNAPSHOT.jar:/app/app.jar
+    command: java -jar app.jar
+    ports:
+      - "9002:9002"
+    environment:
+      SPRING_APPLICATION_NAME: turnos
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/turnos_db
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: root123
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    networks:
+      - onix-network
+    depends_on:
+      - mysql
+      - eureka-server
+
+  # API Gateway
+  api-gateway:
+    image: openjdk:17-jdk-slim
+    container_name: api-gateway
+    working_dir: /app
+    volumes:
+      - ./api-gateway/target/api-gateway-0.0.1-SNAPSHOT.jar:/app/app.jar
+    command: java -jar app.jar
+    ports:
+      - "8090:8090"
+    environment:
+      SPRING_APPLICATION_NAME: api-gateway
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
+    networks:
+      - onix-network
+    depends_on:
+      - eureka-server
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - onix-network
+    depends_on:
+      - pacientes
+      - turnos
+      - api-gateway
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - onix-network
+    depends_on:
+      - prometheus
+
+networks:
+  onix-network:
+    driver: bridge
+
+volumes:
+  mysql-data:
+  prometheus-data:
+  grafana-data:
